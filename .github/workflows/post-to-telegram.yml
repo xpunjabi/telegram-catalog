@@ -4,6 +4,12 @@ on:
   issues:
     types: [opened]
 
+# Explicitly grant permissions to the default GITHUB_TOKEN
+# (new repos default to read-only, which causes 403 on label operations)
+permissions:
+  issues: write
+  contents: read
+
 jobs:
   post-to-telegram:
     runs-on: ubuntu-latest
