@@ -165,6 +165,64 @@ def send_telegram_photo(photo_url, caption=None):
         return False
 
 
+def send_media_group(photo_urls, caption):
+    """Send multiple photos as a single grouped message with one caption.
+
+    This is the KEY improvement: instead of sending each photo separately
+    (which creates multiple messages), sendMediaGroup sends all photos as
+    ONE grouped post. Users can share/copy the whole group as one unit.
+
+    Telegram limits:
+    - Max 10 photos per group
+    - Caption only on first photo (max 1024 chars)
+    """
+    if not photo_urls:
+        return False
+
+    # Telegram limit: 10 photos per media group
+    photos_to_send = photo_urls[:10]
+    if len(photo_urls) > 10:
+        print(f"WARNING: {len(photo_urls)} images provided, but Telegram limit is 10. Sending first 10.")
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMediaGroup"
+    media = []
+    for i, photo_url in enumerate(photos_to_send):
+        item = {
+            "type": "photo",
+            "media": photo_url,
+        }
+        # Caption only on first photo (Telegram requirement)
+        if i == 0 and caption:
+            item["caption"] = caption
+            item["parse_mode"] = "HTML"
+        media.append(item)
+
+    payload = json.dumps({
+        "chat_id": CHANNEL_ID,
+        "media": media,
+    }).encode()
+
+    req = urllib.request.Request(url, data=payload, method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            result = json.loads(resp.read().decode())
+            if result.get("ok"):
+                msg_ids = [m["message_id"] for m in result["result"]]
+                print(f"✅ Media group sent! Message IDs: {msg_ids}")
+                return True
+            else:
+                print(f"ERROR: sendMediaGroup failed: {result}", file=sys.stderr)
+                return False
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        print(f"ERROR: sendMediaGroup HTTP {e.code}: {body}", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"ERROR: sendMediaGroup exception: {e}", file=sys.stderr)
+        return False
+
+
 def main():
     print(f"Processing issue #{ISSUE_NUMBER}: {ISSUE_TITLE}")
     print(f"Issue URL: {ISSUE_URL}")
@@ -178,20 +236,36 @@ def main():
 
     print(f"Product parsed: {product.get('code')} - {product.get('name')}")
 
-    # 1. Send text message with product details
-    message_text = format_message(product)
-    msg_id = send_telegram_message(message_text)
-    if msg_id is None:
-        print("ERROR: Failed to send text message", file=sys.stderr)
-        sys.exit(1)
-
-    # 2. Send photos as separate messages (Telegram allows only 1 photo per sendPhoto call)
     images = product.get("images", [])
-    if isinstance(images, list) and images:
-        print(f"\nSending {len(images)} image(s)...")
-        for i, img_url in enumerate(images):
-            caption = f"🖼️ Image {i+1}/{len(images)} - {product.get('name', '')}" if i == 0 else None
-            send_telegram_photo(img_url, caption)
+    if not isinstance(images, list):
+        images = []
+
+    message_text = format_message(product)
+
+    # STRATEGY: Single grouped post (caption + all images together)
+    # - If images present: use sendMediaGroup (1 grouped message, caption on first photo)
+    # - If no images: use sendMessage (text only)
+    # This ensures the entire product (text + photos) is ONE shareable post
+
+    if images:
+        print(f"\nSending {len(images)} image(s) as single grouped post with caption...")
+        success = send_media_group(images, message_text)
+        if not success:
+            print("WARNING: sendMediaGroup failed, falling back to separate message + photos")
+            # Fallback: text message first, then individual photos
+            msg_id = send_telegram_message(message_text)
+            if msg_id is None:
+                print("ERROR: Fallback text message also failed", file=sys.stderr)
+                sys.exit(1)
+            for img_url in images:
+                send_telegram_photo(img_url)
+    else:
+        # No images - just send text message
+        print("\nNo images - sending text message only...")
+        msg_id = send_telegram_message(message_text)
+        if msg_id is None:
+            print("ERROR: Failed to send text message", file=sys.stderr)
+            sys.exit(1)
 
     print("\n✅ All operations completed successfully!")
 
