@@ -1,0 +1,24 @@
+name: Setup Bot (Manual)
+
+on:
+  workflow_dispatch:
+    description: "One-time bot setup - sets menu button, description, commands"
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run bot setup script
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          FORM_URL: https://xpunjabi.github.io/telegram-catalog/
+        run: python scripts/setup_bot.py

@@ -1,0 +1,42 @@
+name: Poll Bot Updates (Cron)
+
+on:
+  schedule:
+    # Run every 10 minutes (GitHub Actions cron is in UTC)
+    # Note: GitHub Actions cron can be delayed by 5-15 min during peak load
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    description: "Manually trigger bot polling"
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore bot state from cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/bot_state.json
+          key: bot-state-${{ github.run_id }}
+          restore-keys: |
+            bot-state-
+
+      - name: Run polling script
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          FORM_URL: https://xpunjabi.github.io/telegram-catalog/
+          STATE_FILE: /tmp/bot_state.json
+        run: python scripts/poll_updates.py
+
+      - name: Show state file
+        run: |
+          echo "=== Current bot state ==="
+          cat /tmp/bot_state.json 2>/dev/null || echo "(no state file)"
